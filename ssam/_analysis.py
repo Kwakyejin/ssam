@@ -41,6 +41,7 @@ from scipy.ndimage import map_coordinates
 from packaging import version
 
 from .utils import corr, calc_ctmap, calc_corrmap, calc_kde
+from dask.dataframe import DaskDataFrame
 
 def run_sctransform(data, clip_range=None, verbose=True, debug_path=None, plot_model_pars=False, **kwargs):
     """
@@ -340,6 +341,9 @@ class SSAMAnalysis(object):
         :param re_run: Recomputes KDE, ignoring all existing precomputed densities in the data directory.
         :type re_run: bool
         """
+
+        if isinstance(locations, DaskDataFrame):
+            locations = locations.compute()
 
         if not re_run and self.dataset.vf is not None:
             self._m("It seems that KDE has already been fully computed. Are you sure you want to re-run KDE? If so, set re_run=True.")
