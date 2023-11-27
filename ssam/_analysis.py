@@ -41,7 +41,7 @@ from scipy.ndimage import map_coordinates
 from packaging import version
 
 from .utils import corr, calc_ctmap, calc_corrmap, calc_kde
-from dask.dataframe import DaskDataFrame
+from dask.dataframe import DataFrame
 
 def run_sctransform(data, clip_range=None, verbose=True, debug_path=None, plot_model_pars=False, **kwargs):
     """
@@ -328,7 +328,7 @@ class SSAMAnalysis(object):
         if norm_threshold is not None:
             self.dataset.norm_threshold = norm_threshold
             
-    def run_kde(self, locations=None, width=None, height=None, depth=1, kernel='gaussian', bandwidth=2.5, sampling_distance=1.0, prune_coefficient=4.3, re_run=False):
+    def run_kde(self, locations=None, width=None, height=None, depth=1, X=None, Y=None, Z=None, Gene=None, kernel='gaussian', bandwidth=2.5, sampling_distance=1.0, prune_coefficient=4.3, re_run=False):
         """
         Run KDE. This method uses precomputed kernels to estimate density of mRNA by default. Set `prune_coefficient` negative to disable this behavior.
         :param kernel: Kernel for density estimation. Currently only Gaussian kernel is supported.
@@ -342,7 +342,8 @@ class SSAMAnalysis(object):
         :type re_run: bool
         """
 
-        if isinstance(locations, DaskDataFrame):
+        if isinstance(locations, DataFrame):
+            self._m("dask")
             locations = locations.compute()
 
         if not re_run and self.dataset.vf is not None:
@@ -353,16 +354,12 @@ class SSAMAnalysis(object):
             raise NotImplementedError('Only Gaussian kernel is supported for now.')
         if depth < 1 or width < 1 or height < 1:
             raise ValueError("Invalid image dimension")
-        
-        assert locations.index.name == 'gene' or 'gene' in locations, "Format error! Please check whether the column 'gene' exists."
         if locations.index.name != 'gene':
-            locations = locations.set_index('gene')
+            locations = locations.set_index(Gene)
         if depth > 1:
-            assert 'x' in locations and 'y' in locations and 'z' in locations, "Format error! Please check whether the columns 'x', 'y', 'z' exist."
-            locations = locations.reindex(['x', 'y', 'z'], axis=1)
+            locations = locations.reindex([X,Y,Z], axis=1)
         else:
-            assert 'x' in locations and 'y' in locations, "Format error! Please check whether the columns 'x', 'y' exist."
-            locations = locations.reindex(['x', 'y'], axis=1)
+            locations = locations.reindex([X,Y], axis=1)
         
         genes = np.unique(locations.index)
         vf_shape = tuple(list(np.ceil(np.array([width, height, depth])/sampling_distance).astype(int)) + [len(genes)])
@@ -393,7 +390,7 @@ class SSAMAnalysis(object):
         if not all(self.dataset.zarr_group['kde_computed']) or re_run:
             if not re_run and any(self.dataset.zarr_group['kde_computed']):
                 self._m("Resuming KDE computation...")
-            for gidx, (gene, loc) in enumerate(locations.groupby('gene', sort=True)):
+            for gidx, (gene, loc) in enumerate(locations.groupby(Gene, sort=True)):
                 if not re_run and self.dataset.zarr_group['kde_computed'][gidx]:
                     continue
                 self._m("Running KDE for gene %s..."%gene)
@@ -430,7 +427,7 @@ class SSAMAnalysis(object):
         self.dataset.shape = self.dataset.vf_norm.shape
         self._m("Done!")
         return
-
+    
     def calc_correlation_map(self, corr_size=3):
         """
         Calculate local correlation map of the vector field.
